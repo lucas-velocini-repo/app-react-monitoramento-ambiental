@@ -252,6 +252,125 @@
   font-size: 1.1rem;
 }
 
+.overview-wrapper {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.overview-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.overview-subtitle {
+  margin: 4px 0 0;
+  color: #64748b;
+  font-size: 0.9rem;
+}
+
+.overview-status {
+  padding: 8px 12px;
+  border-radius: 999px;
+  font-size: 0.85rem;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.overview-status.ativa {
+  background: #e8f7ee;
+  color: #15803d;
+}
+
+.overview-status.inativa {
+  background: #fde8e8;
+  color: #b91c1c;
+}
+
+.overview-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.overview-card {
+  border-radius: 12px;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  color: #fff;
+}
+
+.overview-card span {
+  font-size: 0.88rem;
+  opacity: 0.9;
+}
+
+.overview-card strong {
+  font-size: 1.4rem;
+}
+
+.overview-card.primary { background: linear-gradient(135deg, #0f6fff, #4a9bff); }
+.overview-card.secondary { background: linear-gradient(135deg, #16a34a, #4ade80); }
+.overview-card.accent { background: linear-gradient(135deg, #7c3aed, #a78bfa); }
+.overview-card.neutral { background: linear-gradient(135deg, #475569, #94a3b8); }
+
+.overview-charts-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 12px;
+}
+
+.overview-pie-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.overview-chart-panel {
+  background: #f8fafc;
+  border-radius: 12px;
+  padding: 14px;
+}
+
+.overview-chart-panel.wide {
+  width: 100%;
+}
+
+.overview-chart-panel h4 {
+  margin: 0 0 10px;
+  font-size: 0.95rem;
+  color: #1e293b;
+}
+
+.overview-footer {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.overview-footer div {
+  background: #f8fafc;
+  border-radius: 10px;
+  padding: 12px;
+  text-align: center;
+}
+
+.overview-footer span {
+  display: block;
+  font-size: 0.82rem;
+  color: #64748b;
+  margin-bottom: 6px;
+}
+
+.overview-footer strong {
+  font-size: 1rem;
+  color: #0f172a;
+}
+
 .chart-placeholder {
   height: 300px;
   border: 2px dashed #cbd5e1;
@@ -304,6 +423,39 @@
   justify-content: center;
   color: #a0aec0;
   background-color: #f8fafc;
+}
+
+.history-table-wrapper {
+  overflow-x: auto;
+  margin-top: 16px;
+}
+
+.history-table {
+  width: 100%;
+  border-collapse: collapse;
+  min-width: 720px;
+}
+
+.history-table th,
+.history-table td {
+  text-align: left;
+  padding: 12px 14px;
+  border-bottom: 1px solid #e2e8f0;
+  font-size: 0.95rem;
+}
+
+.history-table th {
+  background-color: #f8fafc;
+  color: #2d3748;
+  font-weight: 600;
+}
+
+.history-table tbody tr:nth-child(even) {
+  background-color: #f8fafc;
+}
+
+.history-table tbody tr:hover {
+  background-color: #e6f0fa;
 }
 
 /* ================= BARRA DE BUSCA ================= */
