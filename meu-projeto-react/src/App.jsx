@@ -242,6 +242,9 @@ function App() {
   const [botaoAtivo, setBotaoAtivo] = useState("Visão Geral");
   const [termoBusca, setTermoBusca] = useState("");
   const [moduloSelecionado, setModuloSelecionado] = useState(modulos[0]);
+  const [abrirConfigurações, setAbrirConfigurações] = useState(false);
+  const [urlServidor, setUrlServidor] = useState("http://localhost:3000");
+  const [urlServidorTemp, setUrlServidorTemp] = useState("http://localhost:3000");
 
   // Lógica de filtro para os módulos
   const modulosFiltrados = modulos.filter((mod) =>
@@ -251,6 +254,21 @@ function App() {
 
   // Limpar a busca
   const limparBusca = () => setTermoBusca("");
+
+  // Funções de configuração
+  const abrirConfiguracoes = () => {
+    setUrlServidorTemp(urlServidor);
+    setAbrirConfigurações(true);
+  };
+
+  const fecharConfiguracoes = () => {
+    setAbrirConfigurações(false);
+  };
+
+  const salvarConfiguracoes = () => {
+    setUrlServidor(urlServidorTemp);
+    setAbrirConfigurações(false);
+  };
 
   return (
     <div className="dashboard-container">
@@ -270,7 +288,7 @@ function App() {
             <Bell size={20} />
             <span className="badge">3</span>
           </button>
-          <button className="icon-btn" title="Configurações">
+          <button className="icon-btn" title="Configurações" onClick={abrirConfiguracoes}>
             <Settings size={20} />
           </button>
           <div className="user-profile" title="Perfil do Usuário">
@@ -360,6 +378,44 @@ function App() {
         </main>
 
       </div>
+
+      {/* MODAL DE CONFIGURAÇÕES */}
+      {abrirConfigurações && (
+        <div className="modal-overlay" onClick={fecharConfiguracoes}>
+          <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <h2>Configurações</h2>
+              <button className="modal-close-btn" onClick={fecharConfiguracoes}>
+                <X size={24} />
+              </button>
+            </div>
+            
+            <div className="modal-body">
+              <div className="config-section">
+                <label htmlFor="url-servidor" className="config-label">URL do Servidor:</label>
+                <input
+                  id="url-servidor"
+                  type="text"
+                  className="config-input"
+                  value={urlServidorTemp}
+                  onChange={(e) => setUrlServidorTemp(e.target.value)}
+                  placeholder="http://localhost:3000"
+                />
+                <p className="config-hint">Exemplo: http://192.168.1.100:3000</p>
+              </div>
+            </div>
+            
+            <div className="modal-footer">
+              <button className="btn-secondary" onClick={fecharConfiguracoes}>
+                Cancelar
+              </button>
+              <button className="btn-primary" onClick={salvarConfiguracoes}>
+                Salvar Configurações
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
