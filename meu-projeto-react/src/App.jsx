@@ -78,6 +78,17 @@ function App() {
 
   // Função para renderizar o gráfico apropriado
   const renderGrafico = (abaAtiva, modulo) => {
+    // Se nenhum módulo foi selecionado, mostrar mensagem
+    if (!modulo) {
+      return (
+        <div className="empty-state">
+          <Package size={64} color="#cbd5e1" />
+          <h3>Selecione um Módulo</h3>
+          <p>Clique em um dos módulos à esquerda para visualizar os dados e gráficos disponíveis</p>
+        </div>
+      );
+    }
+
     // Se não for o primeiro módulo, mostrar gráfico vazio
     if (modulo.id !== 1) {
       return (
@@ -241,10 +252,10 @@ function App() {
 
   const [botaoAtivo, setBotaoAtivo] = useState("Visão Geral");
   const [termoBusca, setTermoBusca] = useState("");
-  const [moduloSelecionado, setModuloSelecionado] = useState(modulos[0]);
+  const [moduloSelecionado, setModuloSelecionado] = useState(null);
   const [abrirConfigurações, setAbrirConfigurações] = useState(false);
-  const [urlServidor, setUrlServidor] = useState("http://localhost:3000");
-  const [urlServidorTemp, setUrlServidorTemp] = useState("http://localhost:3000");
+  const [urlServidor, setUrlServidor] = useState("http://localhost:3001");
+  const [urlServidorTemp, setUrlServidorTemp] = useState("http://localhost:3001");
 
   // Lógica de filtro para os módulos
   const modulosFiltrados = modulos.filter((mod) =>
@@ -284,10 +295,12 @@ function App() {
         </div>
         
         <div className="nav-right">
+          {/*
           <button className="icon-btn" title="Notificações">
             <Bell size={20} />
             <span className="badge">3</span>
           </button>
+          */}
           <button className="icon-btn" title="Configurações" onClick={abrirConfiguracoes}>
             <Settings size={20} />
           </button>
@@ -331,7 +344,7 @@ function App() {
               modulosFiltrados.map((mod) => (
                 <div 
                   key={mod.id} 
-                  className={`module-card ${moduloSelecionado.id === mod.id ? 'active' : ''}`}
+                  className={`module-card ${moduloSelecionado?.id === mod.id ? 'active' : ''}`}
                   onClick={() => setModuloSelecionado(mod)}
                 >
                   <div className="card-image-frame">
@@ -369,10 +382,12 @@ function App() {
 
           {/* Espaço para o Conteúdo Real */}
           <div className="content-display">
-            <div className="module-header">
-              <h2>Módulo: {moduloSelecionado.titulo}</h2>
-              <p className="module-subtitle">{moduloSelecionado.subtitulo}</p>
-            </div>
+            {moduloSelecionado && (
+              <div className="module-header">
+                <h2>Módulo: {moduloSelecionado.titulo}</h2>
+                <p className="module-subtitle">{moduloSelecionado.subtitulo}</p>
+              </div>
+            )}
             {renderGrafico(botaoAtivo, moduloSelecionado)}
           </div>
         </main>
