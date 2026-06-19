@@ -672,3 +672,87 @@
 .btn-secondary:hover {
   background-color: #cbd5e1;
 }
+
+/* ================= DATE FILTER ================= */
+.chart-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+.chart-header h3 {
+  margin: 0;
+  color: #2d3748;
+  font-size: 1.25rem;
+}
+
+.date-filter {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 12px 16px;
+  background-color: #f7fafc;
+  border-radius: 8px;
+  border: 1px solid #e2e8f0;
+}
+
+.date-filter label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  color: #2d3748;
+  font-size: 0.95rem;
+  font-weight: 500;
+}
+
+.date-filter input[type="radio"] {
+  cursor: pointer;
+  accent-color: #0056b3;
+}
+
+.date-range {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+}
+
+.date-range input[type="datetime-local"] {
+  padding: 8px 12px;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  font-size: 0.9rem;
+  color: #2d3748;
+  background-color: #ffffff;
+  cursor: pointer;
+}
+
+.date-range input[type="datetime-local"]:focus {
+  outline: none;
+  border-color: #0056b3;
+  box-shadow: 0 0 0 3px rgba(0, 86, 179, 0.1);
+}
+
+@media (max-width: 1024px) {
+  .chart-header {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .date-filter {
+    width: 100%;
+    flex-wrap: wrap;
+  }
+
+  .date-range {
+    width: 100%;
+    flex-direction: column;
+  }
+
+  .date-range input[type="datetime-local"] {
+    width: 100%;
+  }
+}

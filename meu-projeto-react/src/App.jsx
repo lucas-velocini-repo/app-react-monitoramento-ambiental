@@ -9,6 +9,17 @@ const tabs = [
   "Particulados NC", "Dados Históricos"
 ];
 
+const CHART_COLORS = [
+  "#0056b3", // Azul escuro
+  "#dc2626", // Vermelho
+  "#16a34a", // Verde
+  "#ea580c", // Laranja
+  "#7c3aed", // Roxo
+  "#0891b2", // Ciano
+  "#db2777", // Rosa
+  "#b45309"  // Marrom
+];
+
 const chartDefinitions = {
   "Visão Geral": {
     params: ["temperature", "humidity"],
@@ -61,6 +72,9 @@ function App() {
   const [abrirConfigurações, setAbrirConfigurações] = useState(false);
   const [urlServidor, setUrlServidor] = useState("/api");
   const [urlServidorTemp, setUrlServidorTemp] = useState("/api");
+  const [filtroData, setFiltroData] = useState("today");
+  const [dataInicio, setDataInicio] = useState("");
+  const [dataFim, setDataFim] = useState("");
 
   const resolveUrl = (path) => {
     if (urlServidor.startsWith("http://") || urlServidor.startsWith("https://")) {
@@ -114,8 +128,16 @@ function App() {
     return res.json();
   };
 
-  const buildTimeSeries = async (deviceId, parameter) => {
-    const data = await fetchJson(resolveUrl(`/timeseries?device_id=${deviceId}&parameter=${encodeURIComponent(parameter)}&limit=50`));
+  const buildTimeSeries = async (deviceId, parameter, filterParams = {}) => {
+    let url = resolveUrl(`/timeseries?device_id=${deviceId}&parameter=${encodeURIComponent(parameter)}&limit=500`);
+    
+    if (filterParams.tipo === "today") {
+      url += "&start_date=today";
+    } else if (filterParams.tipo === "custom" && filterParams.dataInicio && filterParams.dataFim) {
+      url += `&start_date=${filterParams.dataInicio}&end_date=${filterParams.dataFim}`;
+    }
+    
+    const data = await fetchJson(url);
     const timestamps = data.timestamps || [];
     const values = data.values || [];
     return timestamps.map((timestamp, index) => ({
@@ -177,10 +199,6 @@ function App() {
       setDevices(parsedDevices);
       setMeasurements(parsedMeasurements);
 
-      if (!selectedDevice && parsedDevices.length > 0) {
-        setSelectedDevice(parsedDevices[0]);
-      }
-
       if (parsedMeasurements.length > 0) {
         await loadHistoricalData(parsedMeasurements, parsedDevices);
       } else {
@@ -235,8 +253,14 @@ function App() {
     setError(null);
 
     try {
+      const filterParams = {
+        tipo: filtroData,
+        dataInicio,
+        dataFim
+      };
+
       const seriesList = await Promise.all(
-        definition.params.map((param) => buildTimeSeries(deviceId, param))
+        definition.params.map((param) => buildTimeSeries(deviceId, param, filterParams))
       );
       setChartData(mergeSeries(seriesList));
     } catch (err) {
@@ -247,21 +271,60 @@ function App() {
     }
   };
 
+  // Versão silenciosa que atualiza sem mostrar loading
+  const silentUpdateChartData = async (deviceId, currentTab) => {
+    const definition = chartDefinitions[currentTab];
+    if (!definition || currentTab === "Dados Históricos") {
+      return;
+    }
+
+    try {
+      const filterParams = {
+        tipo: filtroData,
+        dataInicio,
+        dataFim
+      };
+
+      const seriesList = await Promise.all(
+        definition.params.map((param) => buildTimeSeries(deviceId, param, filterParams))
+      );
+      setChartData(mergeSeries(seriesList));
+    } catch (err) {
+      // Falha silenciosa - não mostra erro durante atualização automática
+    }
+  };
+
   useEffect(() => {
     loadServerData();
   }, [urlServidor]);
 
   useEffect(() => {
-    if (!selectedDevice && devices.length > 0) {
-      setSelectedDevice(devices[0]);
-    }
-  }, [devices, selectedDevice]);
+    // Atualiza dados a cada 5 segundos
+    const intervalId = setInterval(() => {
+      loadServerData();
+    }, 5000);
+
+    return () => clearInterval(intervalId);
+  }, [urlServidor]);
 
   useEffect(() => {
     if (selectedDevice) {
       loadChartData(selectedDevice.id, botaoAtivo);
     }
-  }, [selectedDevice, botaoAtivo, urlServidor]);
+  }, [selectedDevice, botaoAtivo, urlServidor, filtroData, dataInicio, dataFim]);
+
+  // Atualiza o gráfico apenas para o filtro "today" a cada 5 segundos (silenciosamente)
+  useEffect(() => {
+    if (!selectedDevice || filtroData !== "today" || botaoAtivo === "Visão Geral" || botaoAtivo === "Dados Históricos") {
+      return;
+    }
+
+    const intervalId = setInterval(() => {
+      silentUpdateChartData(selectedDevice.id, botaoAtivo);
+    }, 5000);
+
+    return () => clearInterval(intervalId);
+  }, [selectedDevice, botaoAtivo, filtroData, dataInicio, dataFim]);
 
   const modulosFiltrados = devices.filter((device) =>
     (device.name || '').toLowerCase().includes(termoBusca.toLowerCase()) ||
@@ -296,6 +359,30 @@ function App() {
       .map((word) => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
       .join(' ');
 
+  const formatTimestampXAxis = (value) => {
+    const parsed = Number(value);
+    const date = new Date(Number.isNaN(parsed) ? value : parsed);
+    
+    if (!Number.isNaN(date.getTime())) {
+      if (filtroData === "today") {
+        // Mostrar apenas a hora
+        return date.toLocaleString('pt-BR', {
+          hour: '2-digit',
+          minute: '2-digit'
+        });
+      } else {
+        // Mostrar data e hora
+        return date.toLocaleString('pt-BR', {
+          day: '2-digit',
+          month: '2-digit',
+          hour: '2-digit',
+          minute: '2-digit'
+        });
+      }
+    }
+    return value;
+  };
+
   const formatTimestamp = (value) => {
     const parsed = Number(value);
     const date = new Date(Number.isNaN(parsed) ? value : parsed);
@@ -320,6 +407,51 @@ function App() {
     return null;
   };
 
+  const renderDateFilter = (abaAtiva) => {
+    if (abaAtiva === "Visão Geral" || abaAtiva === "Dados Históricos") {
+      return null;
+    }
+
+    return (
+      <div className="date-filter">
+        <label>
+          <input
+            type="radio"
+            value="today"
+            checked={filtroData === "today"}
+            onChange={(e) => setFiltroData(e.target.value)}
+          />
+          Hoje
+        </label>
+        <label>
+          <input
+            type="radio"
+            value="custom"
+            checked={filtroData === "custom"}
+            onChange={(e) => setFiltroData(e.target.value)}
+          />
+          Período
+        </label>
+        {filtroData === "custom" && (
+          <div className="date-range">
+            <input
+              type="datetime-local"
+              value={dataInicio}
+              onChange={(e) => setDataInicio(e.target.value)}
+              placeholder="Data inicial"
+            />
+            <input
+              type="datetime-local"
+              value={dataFim}
+              onChange={(e) => setDataFim(e.target.value)}
+              placeholder="Data final"
+            />
+          </div>
+        )}
+      </div>
+    );
+  };
+
   const renderGrafico = (abaAtiva, modulo) => {
     if (!modulo) {
       return (
@@ -334,7 +466,10 @@ function App() {
     if (error) {
       return (
         <div className="chart-wrapper">
-          <h3>Erro</h3>
+          <div className="chart-header">
+            <h3>Erro</h3>
+            {renderDateFilter(abaAtiva)}
+          </div>
           <div className="chart-placeholder">
             <p>{error}</p>
           </div>
@@ -342,12 +477,15 @@ function App() {
       );
     }
 
-    if (loading) {
+    if (loadingChart) {
       return (
         <div className="chart-wrapper">
-          <h3>Carregando dados do servidor...</h3>
+          <div className="chart-header">
+            <h3>Atualizando gráfico</h3>
+            {renderDateFilter(abaAtiva)}
+          </div>
           <div className="chart-placeholder">
-            <p>Aguarde enquanto os dispositivos e medições são carregados.</p>
+            <p>Aguarde enquanto o gráfico é carregado.</p>
           </div>
         </div>
       );
@@ -412,17 +550,26 @@ function App() {
       const nc40 = getMetricValue(latestValues, ['nc 4.0', 'nc_4_0']);
       const nc100 = getMetricValue(latestValues, ['nc 10.0', 'nc_10_0']);
 
-      const overallData = selectedHistoricalData.map((item) => ({
-        timestamp: item.timestamp,
-        temperatura: getMetricValue(item.values, ['temperature', 'Temperatura']),
-        umidade: getMetricValue(item.values, ['humidity', 'Umidade'])
-      }));
-
-      const particulateData = selectedHistoricalData.map((item) => ({
-        timestamp: item.timestamp,
-        pm25: getMetricValue(item.values, ['pm 2.5', 'pm_2_5']),
-        pm10: getMetricValue(item.values, ['pm 10.0', 'pm_10_0', 'pm 10'])
-      }));
+      const overallData = [...selectedHistoricalData]
+        .filter((item) => {
+          const parsed = Number(item.timestamp);
+          const itemDate = new Date(Number.isNaN(parsed) ? item.timestamp : parsed);
+          const today = new Date();
+          return itemDate.toDateString() === today.toDateString();
+        })
+        .sort((a, b) => {
+          const timeA = Number(a.timestamp);
+          const timeB = Number(b.timestamp);
+          if (!Number.isNaN(timeA) && !Number.isNaN(timeB)) {
+            return timeA - timeB;
+          }
+          return String(a.timestamp).localeCompare(String(b.timestamp));
+        })
+        .map((item) => ({
+          timestamp: item.timestamp,
+          temperatura: getMetricValue(item.values, ['temperature', 'Temperatura']),
+          umidade: getMetricValue(item.values, ['humidity', 'Umidade'])
+        }));
 
       const qualityLabel = 'Ativa';
       const qualityClass = 'ativa';
@@ -557,9 +704,12 @@ function App() {
     if (!chartData.length) {
       return (
         <div className="chart-wrapper">
-          <h3>Dados não disponíveis</h3>
+          <div className="chart-header">
+            <h3>Dados não disponíveis</h3>
+            {renderDateFilter(abaAtiva)}
+          </div>
           <div className="chart-placeholder">
-            <p>O servidor não retornou dados para este dispositivo e aba.</p>
+            <p>O servidor não retornou dados para este dispositivo e período.</p>
           </div>
         </div>
       );
@@ -579,11 +729,14 @@ function App() {
 
     return (
       <div className="chart-wrapper">
-        <h3>{titleMap[abaAtiva] ?? abaAtiva}</h3>
+        <div className="chart-header">
+          <h3>{titleMap[abaAtiva] ?? abaAtiva}</h3>
+          {renderDateFilter(abaAtiva)}
+        </div>
         <ResponsiveContainer width="100%" height={320}>
           <LineChart data={chartData}>
             <CartesianGrid strokeDasharray="3 3" />
-            <XAxis dataKey="timestamp" />
+            <XAxis dataKey="timestamp" tickFormatter={formatTimestampXAxis} />
             <YAxis />
             <Tooltip />
             <Legend />
@@ -592,7 +745,7 @@ function App() {
                 key={key}
                 type="monotone"
                 dataKey={key}
-                stroke={index % 2 === 0 ? "#0056b3" : "#82ca9d"}
+                stroke={CHART_COLORS[index % CHART_COLORS.length]}
                 name={definition.labels[index]}
                 strokeWidth={2}
                 dot={false}
