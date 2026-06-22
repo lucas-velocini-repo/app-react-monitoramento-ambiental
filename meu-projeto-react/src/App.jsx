@@ -932,6 +932,7 @@ function App() {
       <nav className="navbar">
         <div className="nav-left">
           {/* Espaço reservado caso queira colocar uma logo depois */}
+          <img src="../assets/logo-4.png" alt="Logo" className="logo" />
           <div className="logo-placeholder"></div>
         </div>
         

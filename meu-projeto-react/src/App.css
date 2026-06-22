@@ -309,6 +309,11 @@
   opacity: 0.9;
 }
 
+.logo {
+  width: 50px;
+  height: auto;
+}
+
 .overview-card strong {
   font-size: 1.4rem;
 }
