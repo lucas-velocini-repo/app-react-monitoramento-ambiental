@@ -761,3 +761,22 @@
     width: 100%;
   }
 }
+
+.point-limit-control {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.point-limit-control input {
+  width: 72px;
+  padding: 6px 8px;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  font: inherit;
+}
+
+.point-limit-control input:focus {
+  outline: 2px solid #2563eb;
+  outline-offset: 1px;
+}

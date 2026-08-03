@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Settings, User, Package, Search, X } from 'lucide-react';
 import { LineChart, Line, AreaChart, Area, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 import './App.css';
@@ -19,6 +19,12 @@ const CHART_COLORS = [
   "#db2777", // Rosa
   "#b45309"  // Marrom
 ];
+
+const OVERVIEW_ROW_LIMIT = 50;
+const TABLE_ROW_LIMIT = 100;
+
+const GLOBAL_POLL_INTERVAL_MS = 60_000;
+const LIVE_POLL_INTERVAL_MS = 30_000;
 
 const chartDefinitions = {
   "Visão Geral": {
@@ -61,8 +67,8 @@ const chartDefinitions = {
 function App() {
   const [devices, setDevices] = useState([]);
   const [measurements, setMeasurements] = useState([]);
-  const [historicalData, setHistoricalData] = useState([]);
   const [overviewData, setOverviewData] = useState([]);
+  const [chartPointLimit, setChartPointLimit] = useState(100);
   const [tableData, setTableData] = useState([]);
   const [selectedDevice, setSelectedDevice] = useState(null);
   const [chartData, setChartData] = useState([]);
@@ -130,220 +136,248 @@ function App() {
     return res.json();
   };
 
-  const buildTimeSeries = async (deviceId, parameter, filterParams = {}) => {
-    let url = resolveUrl(`/timeseries?device_id=${deviceId}&parameter=${encodeURIComponent(parameter)}&limit=500`);
-    
+  const buildTimeSeries = async (
+    deviceId,
+    parameter,
+    filterParams = {}
+  ) => {
+    const query = new URLSearchParams({
+      device_id: String(deviceId),
+      parameter,
+      limit: String(chartPointLimit)
+    });
+
     if (filterParams.tipo === "today") {
-      url += "&start_date=today";
-    } else if (filterParams.tipo === "custom" && filterParams.dataInicio && filterParams.dataFim) {
-      url += `&start_date=${filterParams.dataInicio}&end_date=${filterParams.dataFim}`;
+      const start =
+        new Date();
+
+      start.setHours(
+        0,
+        0,
+        0,
+        0
+      );
+
+      const end =
+        new Date();
+
+      end.setHours(
+        23,
+        59,
+        59,
+        999
+      );
+
+      query.set(
+        "start_timestamp",
+        String(
+          Math.floor(
+            start.getTime() / 1000
+          )
+        )
+      );
+
+      query.set(
+        "end_timestamp",
+        String(
+          Math.floor(
+            end.getTime() / 1000
+          )
+        )
+      );
     }
-    
-    const data = await fetchJson(url);
-    const timestamps = data.timestamps || [];
-    const values = data.values || [];
-    return timestamps.map((timestamp, index) => ({
-      timestamp,
-      [parameter]: values[index] ?? null
+
+    if (
+      filterParams.tipo === "custom"
+      && filterParams.dataInicio
+      && filterParams.dataFim
+    ) {
+      const start =
+        new Date(
+          filterParams.dataInicio
+        );
+
+      const end =
+        new Date(
+          filterParams.dataFim
+        );
+
+      if (
+        !Number.isNaN(
+          start.getTime()
+        )
+      ) {
+        query.set(
+          "start_timestamp",
+          String(
+            Math.floor(
+              start.getTime() / 1000
+            )
+          )
+        );
+      }
+
+      if (
+        !Number.isNaN(
+          end.getTime()
+        )
+      ) {
+        query.set(
+          "end_timestamp",
+          String(
+            Math.floor(
+              end.getTime() / 1000
+            )
+          )
+        );
+      }
+    }
+
+    const data =
+      await fetchJson(
+        resolveUrl(
+          `/timeseries?${query.toString()}`
+        )
+      );
+
+    const timestamps =
+      data.timestamps || [];
+
+    const values =
+      data.values || [];
+
+    return timestamps.map(
+      (timestamp, index) => ({
+        timestamp,
+        [parameter]:
+          values[index] ?? null
+      })
+    );
+  };
+
+  const loadCompleteMeasurements = async (
+    deviceId,
+    limit
+  ) => {
+    const url = resolveUrl(
+      `/device-measurements/${deviceId}?limit=${limit}`
+    );
+
+    const rows = await fetchJson(url);
+
+    if (!Array.isArray(rows)) {
+      return [];
+    }
+
+    const selectedDeviceData =
+      devices.find((device) => device.id === deviceId);
+
+    return rows.map((item) => ({
+      measurementId: item.measurement_id,
+      deviceId: item.device_id,
+      deviceName:
+        selectedDeviceData?.name ||
+        `Dispositivo ${item.device_id}`,
+      timestamp: item.timestamp,
+      values: item.values || {}
     }));
   };
 
+  const overviewRequestRunning = useRef(false);
+
   const loadOverviewData = async (deviceId) => {
+    if (overviewRequestRunning.current) {
+      return;
+    }
+
+    overviewRequestRunning.current = true;
+
     try {
-      const url = resolveUrl(`/measurements-by-device/${deviceId}?limit=50`);
-      const measurementsRaw = await fetchJson(url);
-      
-      if (!Array.isArray(measurementsRaw)) {
-        setOverviewData([]);
-        return;
-      }
-
-      const deviceMap = Object.fromEntries(devices.map((device) => [device.id, device.name]));
-      
-      const rows = await Promise.allSettled(
-        measurementsRaw.map(async (measurement) => {
-          const valuesData = await fetchJson(resolveUrl(`/measurement/${measurement[0]}`));
-          const values = normalizeMeasurementValues(valuesData);
-
-          const flattenedValues = values.length > 0
-            ? Object.fromEntries(values.map((item) => [item.parameter, item.value]))
-            : (valuesData && typeof valuesData === 'object' && !Array.isArray(valuesData)
-              ? Object.entries(valuesData).reduce((acc, [key, value]) => {
-                  if (value && typeof value === 'object' && !Array.isArray(value)) {
-                    Object.entries(value).forEach(([nestedKey, nestedValue]) => {
-                      acc[`${key} ${nestedKey}`] = nestedValue;
-                    });
-                  } else {
-                    acc[key] = value;
-                  }
-                  return acc;
-                }, {})
-              : {}
-            );
-
-          return {
-            measurementId: measurement[0],
-            deviceId: measurement[1],
-            deviceName: deviceMap[measurement[1]] || `Dispositivo ${measurement[1]}`,
-            timestamp: measurement[2],
-            values: flattenedValues
-          };
-        })
+      const rows = await loadCompleteMeasurements(
+        deviceId,
+        OVERVIEW_ROW_LIMIT
       );
 
-      const validRows = rows
-        .filter((result) => result.status === 'fulfilled' && result.value)
-        .map((result) => result.value)
-        .sort((a, b) => {
-          const timeA = Number(a.timestamp);
-          const timeB = Number(b.timestamp);
-          if (!Number.isNaN(timeA) && !Number.isNaN(timeB)) {
-            return timeB - timeA;
-          }
-          return String(b.timestamp).localeCompare(String(a.timestamp));
-        });
-
-      setOverviewData(validRows);
+      setOverviewData(rows);
     } catch (err) {
+      console.error(
+        'Erro ao carregar visão geral:',
+        err
+      );
+
       setOverviewData([]);
+    } finally {
+      overviewRequestRunning.current = false;
     }
   };
+
+  const tableRequestRunning = useRef(false);
 
   const loadTableData = async (deviceId) => {
+    if (tableRequestRunning.current) {
+      return;
+    }
+
+    tableRequestRunning.current = true;
+
     try {
-      const url = resolveUrl(`/measurements-by-device/${deviceId}?limit=100`);
-      const measurementsRaw = await fetchJson(url);
-      
-      if (!Array.isArray(measurementsRaw)) {
-        setTableData([]);
-        return;
-      }
-
-      const deviceMap = Object.fromEntries(devices.map((device) => [device.id, device.name]));
-      
-      const rows = await Promise.allSettled(
-        measurementsRaw.map(async (measurement) => {
-          const valuesData = await fetchJson(resolveUrl(`/measurement/${measurement[0]}`));
-          const values = normalizeMeasurementValues(valuesData);
-
-          const flattenedValues = values.length > 0
-            ? Object.fromEntries(values.map((item) => [item.parameter, item.value]))
-            : (valuesData && typeof valuesData === 'object' && !Array.isArray(valuesData)
-              ? Object.entries(valuesData).reduce((acc, [key, value]) => {
-                  if (value && typeof value === 'object' && !Array.isArray(value)) {
-                    Object.entries(value).forEach(([nestedKey, nestedValue]) => {
-                      acc[`${key} ${nestedKey}`] = nestedValue;
-                    });
-                  } else {
-                    acc[key] = value;
-                  }
-                  return acc;
-                }, {})
-              : {}
-            );
-
-          return {
-            measurementId: measurement[0],
-            deviceId: measurement[1],
-            deviceName: deviceMap[measurement[1]] || `Dispositivo ${measurement[1]}`,
-            timestamp: measurement[2],
-            values: flattenedValues
-          };
-        })
+      const rows = await loadCompleteMeasurements(
+        deviceId,
+        TABLE_ROW_LIMIT
       );
 
-      const validRows = rows
-        .filter((result) => result.status === 'fulfilled' && result.value)
-        .map((result) => result.value)
-        .sort((a, b) => {
-          const timeA = Number(a.timestamp);
-          const timeB = Number(b.timestamp);
-          if (!Number.isNaN(timeA) && !Number.isNaN(timeB)) {
-            return timeB - timeA;
-          }
-          return String(b.timestamp).localeCompare(String(a.timestamp));
-        });
-
-      setTableData(validRows);
+      setTableData(rows);
     } catch (err) {
+      console.error(
+        'Erro ao carregar tabela:',
+        err
+      );
+
       setTableData([]);
+    } finally {
+      tableRequestRunning.current = false;
     }
   };
 
-  const loadHistoricalData = async (measurementRows, deviceList) => {
-    const deviceMap = Object.fromEntries(deviceList.map((device) => [device.id, device.name]));
-
-    const settledRows = await Promise.allSettled(
-      measurementRows.map(async (measurement) => {
-        const valuesData = await fetchJson(resolveUrl(`/measurement/${measurement.id}`));
-        const values = normalizeMeasurementValues(valuesData);
-
-        const flattenedValues = values.length > 0
-          ? Object.fromEntries(values.map((item) => [item.parameter, item.value]))
-          : (valuesData && typeof valuesData === 'object' && !Array.isArray(valuesData)
-            ? Object.entries(valuesData).reduce((acc, [key, value]) => {
-                if (value && typeof value === 'object' && !Array.isArray(value)) {
-                  Object.entries(value).forEach(([nestedKey, nestedValue]) => {
-                    acc[`${key} ${nestedKey}`] = nestedValue;
-                  });
-                } else {
-                  acc[key] = value;
-                }
-                return acc;
-              }, {})
-            : {}
-          );
-
-        return {
-          measurementId: measurement.id,
-          deviceId: measurement.device_id,
-          deviceName: deviceMap[measurement.device_id] || `Dispositivo ${measurement.device_id}`,
-          timestamp: measurement.timestamp,
-          values: flattenedValues
-        };
-      })
-    );
-
-    const rows = settledRows
-      .filter((result) => result.status === 'fulfilled' && result.value)
-      .map((result) => result.value)
-      .sort((a, b) => {
-        const timeA = Number(a.timestamp);
-        const timeB = Number(b.timestamp);
-        if (!Number.isNaN(timeA) && !Number.isNaN(timeB)) {
-          return timeB - timeA;
-        }
-        return String(b.timestamp).localeCompare(String(a.timestamp));
-      });
-
-    setHistoricalData(rows);
-  };
+  const serverRequestRunning = useRef(false);
 
   const loadServerData = async () => {
+    if (serverRequestRunning.current) {
+      return;
+    }
+
+    serverRequestRunning.current = true;
+
     try {
       setLoading(true);
       setError(null);
 
-      const [devicesRaw, measurementsRaw] = await Promise.all([
-        fetchJson(resolveUrl('/devices')),
-        fetchJson(resolveUrl('/measurements'))
-      ]);
+      const [devicesRaw, measurementsRaw] =
+        await Promise.all([
+          fetchJson(resolveUrl('/devices')),
+          fetchJson(resolveUrl('/measurements'))
+        ]);
 
-      const parsedDevices = normalizeDevices(devicesRaw);
-      const parsedMeasurements = normalizeMeasurements(measurementsRaw);
+      const parsedDevices =
+        normalizeDevices(devicesRaw);
+
+      const parsedMeasurements =
+        normalizeMeasurements(measurementsRaw);
 
       setDevices(parsedDevices);
       setMeasurements(parsedMeasurements);
-
-      if (parsedMeasurements.length > 0) {
-        await loadHistoricalData(parsedMeasurements, parsedDevices);
-      } else {
-        setHistoricalData([]);
-      }
     } catch (err) {
-      setError('Não foi possível acessar o servidor. Verifique a URL e se o backend está rodando.');
+      console.error(
+        'Erro ao carregar servidor:',
+        err
+      );
+
+      setError(
+        'Não foi possível acessar o servidor. Verifique a URL e se o backend está rodando.'
+      );
     } finally {
       setLoading(false);
+      serverRequestRunning.current = false;
     }
   };
 
@@ -428,16 +462,26 @@ function App() {
   };
 
   useEffect(() => {
-    loadServerData();
-  }, [urlServidor]);
+    let active = true;
+    let timeoutId;
 
-  useEffect(() => {
-    // Atualiza dados a cada 5 segundos
-    const intervalId = setInterval(() => {
-      loadServerData();
-    }, 5000);
+    const refresh = async () => {
+      await loadServerData();
 
-    return () => clearInterval(intervalId);
+      if (active) {
+        timeoutId = setTimeout(
+          refresh,
+          GLOBAL_POLL_INTERVAL_MS
+        );
+      }
+    };
+
+    refresh();
+
+    return () => {
+      active = false;
+      clearTimeout(timeoutId);
+    };
   }, [urlServidor]);
 
   useEffect(() => {
@@ -452,31 +496,90 @@ function App() {
     }
   }, [selectedDevice, botaoAtivo, urlServidor, filtroData, dataInicio, dataFim]);
 
-  // Atualiza o gráfico apenas para o filtro "today" a cada 5 segundos (silenciosamente)
   useEffect(() => {
-    if (!selectedDevice || filtroData !== "today" || botaoAtivo === "Visão Geral" || botaoAtivo === "Dados Históricos") {
+    if (
+      !selectedDevice ||
+      filtroData !== "today" ||
+      botaoAtivo === "Visão Geral" ||
+      botaoAtivo === "Dados Históricos"
+    ) {
       return;
     }
 
-    const intervalId = setInterval(() => {
-      silentUpdateChartData(selectedDevice.id, botaoAtivo);
-    }, 5000);
+    let active = true;
+    let timeoutId;
 
-    return () => clearInterval(intervalId);
-  }, [selectedDevice, botaoAtivo, filtroData, dataInicio, dataFim]);
+    const refresh = async () => {
+      await silentUpdateChartData(
+        selectedDevice.id,
+        botaoAtivo
+      );
 
-  // Atualiza a visão geral a cada 5 segundos (silenciosamente)
+      if (active) {
+        timeoutId = setTimeout(
+          refresh,
+          LIVE_POLL_INTERVAL_MS
+        );
+      }
+    };
+
+    timeoutId = setTimeout(
+      refresh,
+      LIVE_POLL_INTERVAL_MS
+    );
+
+    return () => {
+      active = false;
+      clearTimeout(timeoutId);
+    };
+  }, [
+    selectedDevice,
+    botaoAtivo,
+    filtroData,
+    dataInicio,
+    dataFim,
+    urlServidor,
+    chartPointLimit
+  ]);
+
   useEffect(() => {
-    if (!selectedDevice || botaoAtivo !== "Visão Geral") {
+    if (
+      !selectedDevice ||
+      botaoAtivo !== "Visão Geral"
+    ) {
       return;
     }
 
-    const intervalId = setInterval(() => {
-      loadOverviewData(selectedDevice.id);
-    }, 5000);
+    let active = true;
+    let timeoutId;
 
-    return () => clearInterval(intervalId);
-  }, [selectedDevice, botaoAtivo]);
+    const refresh = async () => {
+      await loadOverviewData(
+        selectedDevice.id
+      );
+
+      if (active) {
+        timeoutId = setTimeout(
+          refresh,
+          LIVE_POLL_INTERVAL_MS
+        );
+      }
+    };
+
+    timeoutId = setTimeout(
+      refresh,
+      LIVE_POLL_INTERVAL_MS
+    );
+
+    return () => {
+      active = false;
+      clearTimeout(timeoutId);
+    };
+  }, [
+    selectedDevice,
+    botaoAtivo,
+    urlServidor
+  ]);
 
   const modulosFiltrados = devices.filter((device) =>
     (device.name || '').toLowerCase().includes(termoBusca.toLowerCase()) ||
@@ -511,42 +614,109 @@ function App() {
       .map((word) => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
       .join(' ');
 
-  const formatTimestampXAxis = (value) => {
-    const parsed = Number(value);
-    const date = new Date(Number.isNaN(parsed) ? value : parsed);
-    
-    if (!Number.isNaN(date.getTime())) {
-      if (filtroData === "today") {
-        // Mostrar apenas a hora
-        return date.toLocaleString('pt-BR', {
-          hour: '2-digit',
-          minute: '2-digit'
-        });
-      } else {
-        // Mostrar data e hora
-        return date.toLocaleString('pt-BR', {
-          day: '2-digit',
-          month: '2-digit',
-          hour: '2-digit',
-          minute: '2-digit'
-        });
-      }
+  const parseMeasurementTimestamp = (
+    value
+  ) => {
+    const numericValue =
+      Number(value);
+
+    // Novo formato: Unix timestamp em segundos.
+    if (
+      Number.isFinite(numericValue)
+      && numericValue > 0
+    ) {
+      return new Date(
+        numericValue * 1000
+      );
     }
+
+    // Compatibilidade com datas antigas:
+    // "2026-08-03 20:30:00"
+    if (typeof value === "string") {
+      const hasTimezone =
+        value.endsWith("Z")
+        || /[+-]\d{2}:\d{2}$/.test(value);
+
+      const normalized =
+        hasTimezone
+          ? value
+          : `${value.replace(" ", "T")}Z`;
+
+      return new Date(normalized);
+    }
+
+    return new Date(value);
+  };
+  
+
+  const formatTimestampXAxis = (
+    value
+  ) => {
+    const date =
+      parseMeasurementTimestamp(value);
+
+    if (
+      !Number.isNaN(
+        date.getTime()
+      )
+    ) {
+      if (filtroData === "today") {
+        return date.toLocaleString(
+          "pt-BR",
+          {
+            timeZone:
+              "America/Sao_Paulo",
+
+            hour: "2-digit",
+            minute: "2-digit"
+          }
+        );
+      }
+
+      return date.toLocaleString(
+        "pt-BR",
+        {
+          timeZone:
+            "America/Sao_Paulo",
+
+          day: "2-digit",
+          month: "2-digit",
+          hour: "2-digit",
+          minute: "2-digit"
+        }
+      );
+    }
+
     return value;
   };
 
-  const formatTimestamp = (value) => {
-    const parsed = Number(value);
-    const date = new Date(Number.isNaN(parsed) ? value : parsed);
-    if (!Number.isNaN(date.getTime())) {
-      return date.toLocaleString('pt-BR', {
-        day: '2-digit',
-        month: '2-digit',
-        year: 'numeric',
-        hour: '2-digit',
-        minute: '2-digit'
-      });
+  const formatTimestamp = (
+    value
+  ) => {
+    const date =
+      parseMeasurementTimestamp(value);
+
+    if (
+      !Number.isNaN(
+        date.getTime()
+      )
+    ) {
+      return date.toLocaleString(
+        "pt-BR",
+        {
+          timeZone:
+            "America/Sao_Paulo",
+
+          day: "2-digit",
+          month: "2-digit",
+          year: "numeric",
+          hour: "2-digit",
+          minute: "2-digit",
+          second: "2-digit"
+        }
+      );
     }
+
     return value;
   };
 
@@ -559,8 +729,14 @@ function App() {
     return null;
   };
 
-  const renderDateFilter = (abaAtiva) => {
-    if (abaAtiva === "Visão Geral" || abaAtiva === "Dados Históricos") {
+  const renderDateFilter = (
+    abaAtiva
+  ) => {
+    if (
+      abaAtiva === "Visão Geral"
+      || abaAtiva ===
+        "Dados Históricos"
+    ) {
       return null;
     }
 
@@ -570,36 +746,96 @@ function App() {
           <input
             type="radio"
             value="today"
-            checked={filtroData === "today"}
-            onChange={(e) => setFiltroData(e.target.value)}
+            checked={
+              filtroData === "today"
+            }
+            onChange={(event) =>
+              setFiltroData(
+                event.target.value
+              )
+            }
           />
+
           Hoje
         </label>
+
         <label>
           <input
             type="radio"
             value="custom"
-            checked={filtroData === "custom"}
-            onChange={(e) => setFiltroData(e.target.value)}
+            checked={
+              filtroData === "custom"
+            }
+            onChange={(event) =>
+              setFiltroData(
+                event.target.value
+              )
+            }
           />
+
           Período
         </label>
+
         {filtroData === "custom" && (
           <div className="date-range">
             <input
               type="datetime-local"
               value={dataInicio}
-              onChange={(e) => setDataInicio(e.target.value)}
-              placeholder="Data inicial"
+              onChange={(event) =>
+                setDataInicio(
+                  event.target.value
+                )
+              }
             />
+
             <input
               type="datetime-local"
               value={dataFim}
-              onChange={(e) => setDataFim(e.target.value)}
-              placeholder="Data final"
+              onChange={(event) =>
+                setDataFim(
+                  event.target.value
+                )
+              }
             />
           </div>
         )}
+
+        <label className="point-limit-control">
+          <span>Pontos:</span>
+
+          <input
+            type="number"
+            min="2"
+            max="300"
+            step="1"
+            value={chartPointLimit}
+            onChange={(event) => {
+              const value =
+                Number(
+                  event.target.value
+                );
+
+              if (
+                !Number.isFinite(value)
+              ) {
+                return;
+              }
+
+              const normalized =
+                Math.min(
+                  300,
+                  Math.max(
+                    2,
+                    Math.trunc(value)
+                  )
+                );
+
+              setChartPointLimit(
+                normalized
+              );
+            }}
+          />
+        </label>
       </div>
     );
   };
@@ -684,7 +920,7 @@ function App() {
     }
 
     if (abaAtiva === "Visão Geral") {
-      const selectedHistoricalData = overviewData.length > 0 ? overviewData : historicalData.filter((item) => item.deviceId === modulo.id);
+      const selectedHistoricalData = overviewData;
       const latestReading = selectedHistoricalData[0] ?? null;
       const latestValues = latestReading?.values || {};
 
