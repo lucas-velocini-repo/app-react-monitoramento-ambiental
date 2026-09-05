@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { Settings, User, Package, Search, X } from 'lucide-react';
 import { LineChart, Line, AreaChart, Area, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 import './App.css';
+import logo from '../assets/logo-4.png'
 
 const tabs = [
   "Visão Geral", "Temperatura", "Pressão", 
@@ -69,6 +70,7 @@ function App() {
   const [measurements, setMeasurements] = useState([]);
   const [overviewData, setOverviewData] = useState([]);
   const [chartPointLimit, setChartPointLimit] = useState(100);
+  const [chartPointLimitInput, setChartPointLimitInput] = useState("100");
   const [tableData, setTableData] = useState([]);
   const [selectedDevice, setSelectedDevice] = useState(null);
   const [chartData, setChartData] = useState([]);
@@ -106,27 +108,6 @@ function App() {
       device_id,
       timestamp
     }));
-
-  const normalizeMeasurementValues = (rows) => {
-    if (Array.isArray(rows)) {
-      return rows.map((item) => {
-        if (Array.isArray(item)) {
-          const [parameter, value] = item;
-          return { parameter, value };
-        }
-        return item;
-      });
-    }
-
-    if (rows && typeof rows === 'object') {
-      return Object.entries(rows).map(([parameter, value]) => ({
-        parameter,
-        value
-      }));
-    }
-
-    return [];
-  };
 
   const fetchJson = async (url) => {
     const res = await fetch(url);
@@ -381,6 +362,30 @@ function App() {
     }
   };
 
+  const formatTimeOnly = (value) => {
+    const date =
+      parseMeasurementTimestamp(value);
+
+    if (
+      !Number.isNaN(
+        date.getTime()
+      )
+    ) {
+      return date.toLocaleTimeString(
+        "pt-BR",
+        {
+          timeZone:
+            "America/Sao_Paulo",
+
+          hour: "2-digit",
+          minute: "2-digit"
+        }
+      );
+    }
+
+    return value;
+  };
+
   const mergeSeries = (seriesList) => {
     const mergedMap = new Map();
 
@@ -494,7 +499,7 @@ function App() {
         loadTableData(selectedDevice.id);
       }
     }
-  }, [selectedDevice, botaoAtivo, urlServidor, filtroData, dataInicio, dataFim]);
+  }, [selectedDevice, botaoAtivo, urlServidor, filtroData, dataInicio, dataFim, chartPointLimit]);
 
   useEffect(() => {
     if (
@@ -729,6 +734,41 @@ function App() {
     return null;
   };
 
+  const applyChartPointLimit = () => {
+    const parsedValue =
+      Number.parseInt(
+        chartPointLimitInput,
+        10
+      );
+
+    if (
+      Number.isNaN(parsedValue)
+    ) {
+      setChartPointLimitInput(
+        String(chartPointLimit)
+      );
+
+      return;
+    }
+
+    const normalizedValue =
+      Math.min(
+        300,
+        Math.max(
+          2,
+          parsedValue
+        )
+      );
+
+    setChartPointLimit(
+      normalizedValue
+    );
+
+    setChartPointLimitInput(
+      String(normalizedValue)
+    );
+  };
+
   const renderDateFilter = (
     abaAtiva
   ) => {
@@ -739,6 +779,9 @@ function App() {
     ) {
       return null;
     }
+
+    const customPeriodActive =
+      filtroData === "custom";
 
     return (
       <div className="date-filter">
@@ -776,15 +819,13 @@ function App() {
           Período
         </label>
 
-        {filtroData === "custom" && (
+        {customPeriodActive && (
           <div className="date-range">
             <input
               type="datetime-local"
               value={dataInicio}
               onChange={(event) =>
-                setDataInicio(
-                  event.target.value
-                )
+                setDataInicio(event.target.value)
               }
             />
 
@@ -792,9 +833,7 @@ function App() {
               type="datetime-local"
               value={dataFim}
               onChange={(event) =>
-                setDataFim(
-                  event.target.value
-                )
+                setDataFim(event.target.value)
               }
             />
           </div>
@@ -808,32 +847,26 @@ function App() {
             min="2"
             max="300"
             step="1"
-            value={chartPointLimit}
-            onChange={(event) => {
-              const value =
-                Number(
-                  event.target.value
-                );
-
+            value={
+              chartPointLimitInput
+            }
+            onChange={(event) =>
+              setChartPointLimitInput(
+                event.target.value
+              )
+            }
+            onKeyDown={(event) => {
               if (
-                !Number.isFinite(value)
+                event.key === "Enter"
               ) {
-                return;
+                event.preventDefault();
+
+                applyChartPointLimit();
               }
-
-              const normalized =
-                Math.min(
-                  300,
-                  Math.max(
-                    2,
-                    Math.trunc(value)
-                  )
-                );
-
-              setChartPointLimit(
-                normalized
-              );
             }}
+            onBlur={
+              applyChartPointLimit
+            }
           />
         </label>
       </div>
@@ -860,20 +893,6 @@ function App() {
           </div>
           <div className="chart-placeholder">
             <p>{error}</p>
-          </div>
-        </div>
-      );
-    }
-
-    if (loadingChart) {
-      return (
-        <div className="chart-wrapper">
-          <div className="chart-header">
-            <h3>Atualizando gráfico</h3>
-            {renderDateFilter(abaAtiva)}
-          </div>
-          <div className="chart-placeholder">
-            <p>Aguarde enquanto o gráfico é carregado.</p>
           </div>
         </div>
       );
@@ -938,26 +957,49 @@ function App() {
       const nc40 = getMetricValue(latestValues, ['nc 4.0', 'nc_4_0']);
       const nc100 = getMetricValue(latestValues, ['nc 10.0', 'nc_10_0']);
 
-      const overallData = [...selectedHistoricalData]
-        .filter((item) => {
-          const parsed = Number(item.timestamp);
-          const itemDate = new Date(Number.isNaN(parsed) ? item.timestamp : parsed);
-          const today = new Date();
-          return itemDate.toDateString() === today.toDateString();
-        })
-        .sort((a, b) => {
-          const timeA = Number(a.timestamp);
-          const timeB = Number(b.timestamp);
-          if (!Number.isNaN(timeA) && !Number.isNaN(timeB)) {
-            return timeA - timeB;
-          }
-          return String(a.timestamp).localeCompare(String(b.timestamp));
-        })
-        .map((item) => ({
-          timestamp: item.timestamp,
-          temperatura: getMetricValue(item.values, ['temperature', 'Temperatura']),
-          umidade: getMetricValue(item.values, ['humidity', 'Umidade'])
-        }));
+      const overallData = [
+          ...selectedHistoricalData
+        ]
+          .filter((item) => {
+            const itemDate =
+              parseMeasurementTimestamp(
+                item.timestamp
+              );
+
+            const today =
+              new Date();
+
+            return (
+              itemDate.toDateString()
+              === today.toDateString()
+            );
+          })
+          .sort((a, b) =>
+            Number(a.timestamp)
+            - Number(b.timestamp)
+          )
+          .map((item) => ({
+            timestamp:
+              item.timestamp,
+
+            temperatura:
+              getMetricValue(
+                item.values,
+                [
+                  "temperature",
+                  "Temperatura"
+                ]
+              ),
+
+            umidade:
+              getMetricValue(
+                item.values,
+                [
+                  "humidity",
+                  "Umidade"
+                ]
+              )
+          }));
 
       const qualityLabel = 'Ativa';
       const qualityClass = 'ativa';
@@ -1035,7 +1077,7 @@ function App() {
                     </linearGradient>
                   </defs>
                   <CartesianGrid strokeDasharray="3 3" />
-                  <XAxis dataKey="timestamp" tickFormatter={(value) => formatTimestamp(value)} />
+                  <XAxis dataKey="timestamp" tickFormatter={formatTimeOnly}/>
                   <YAxis />
                   <Tooltip labelFormatter={(value) => formatTimestamp(value)} />
                   <Legend />
@@ -1139,11 +1181,22 @@ function App() {
           {renderDateFilter(abaAtiva)}
         </div>
         <ResponsiveContainer width="100%" height={320}>
-          <LineChart data={chartData}>
+          <LineChart
+            data={chartData}
+            margin={{
+              top: 10,
+              right: 20,
+              left: 10,
+              bottom: 0
+            }}
+          >
             <CartesianGrid strokeDasharray="3 3" />
             <XAxis dataKey="timestamp" tickFormatter={formatTimestampXAxis} />
-            <YAxis />
-            <Tooltip />
+            <YAxis
+              width={40}
+              tickMargin={8}
+            />
+            <Tooltip labelFormatter={(value) => formatTimestamp(value)} />
             <Legend />
             {definition.keys.map((key, index) => (
               <Line
@@ -1168,7 +1221,7 @@ function App() {
       <nav className="navbar">
         <div className="nav-left">
           {/* Espaço reservado caso queira colocar uma logo depois */}
-          <img src="../assets/logo-4.png" alt="Logo" className="logo" />
+          <img src={logo} alt="Logo" className="logo" />
           <div className="logo-placeholder"></div>
         </div>
         
@@ -1276,7 +1329,13 @@ function App() {
               <div className="module-header">
                 <h2>Dispositivo: {formatModuleName(selectedDevice.name || `ID ${selectedDevice.id}`)}</h2>
                 <p className="module-subtitle">
-                  Última leitura: {lastDeviceMeasurement?.timestamp ?? 'Sem leituras'} • Lat {selectedDevice.latitude?.toFixed(4) ?? 0}, Lon {selectedDevice.longitude?.toFixed(4) ?? 0}
+                  Última leitura: {
+                    lastDeviceMeasurement
+                      ? formatTimestamp(
+                          lastDeviceMeasurement.timestamp
+                        )
+                      : "Sem leituras"
+                  }
                 </p>
               </div>
             )}
