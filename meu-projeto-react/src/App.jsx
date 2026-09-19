@@ -54,14 +54,14 @@ const chartDefinitions = {
     keys: ["light"]
   },
   "Particulados PM": {
-    params: ["pm_1_0", "pm_2_5", "pm_4_0", "pm_10_0"],
-    labels: ["PM 1.0", "PM 2.5", "PM 4.0", "PM 10.0"],
-    keys: ["pm_1_0", "pm_2_5", "pm_4_0", "pm_10_0"]
+  params: ["pm1", "pm25", "pm4", "pm10"],
+  labels: ["PM 1.0", "PM 2.5", "PM 4.0", "PM 10.0"],
+  keys: ["pm1", "pm25", "pm4", "pm10"]
   },
   "Particulados NC": {
-    params: ["nc_0_5", "nc_1_0", "nc_2_5", "nc_4_0", "nc_10_0"],
+    params: ["nc05", "nc10", "nc25", "nc40", "nc100"],
     labels: ["NC 0.5", "NC 1.0", "NC 2.5", "NC 4.0", "NC 10.0"],
-    keys: ["nc_0_5", "nc_1_0", "nc_2_5", "nc_4_0", "nc_10_0"]
+    keys: ["nc05", "nc10", "nc25", "nc40", "nc100"]
   }
 };
 
@@ -94,19 +94,50 @@ function App() {
   };
 
   const normalizeDevices = (rows) =>
-    rows.map(([id, name, latitude, longitude, created_at]) => ({
-      id,
-      name,
-      latitude,
-      longitude,
-      created_at
+    rows.map((item) => ({
+      /*
+      * Mantemos "id" como o device_id técnico
+      * porque o restante da interface já usa
+      * selectedDevice.id para consultar dados.
+      */
+      id: item.device_id,
+
+      databaseId: item.id,
+
+      name: item.name,
+
+      latitude:
+        item.latitude ?? null,
+
+      longitude:
+        item.longitude ?? null,
+
+      created_at:
+        item.created_at,
+
+      last_seen:
+        item.last_seen,
+
+      active:
+        item.active,
     }));
 
   const normalizeMeasurements = (rows) =>
-    rows.map(([id, device_id, timestamp]) => ({
-      id,
-      device_id,
-      timestamp
+    rows.map((item) => ({
+      id:
+        item.measurement_id,
+
+      device_id:
+        item.device_id,
+
+      timestamp:
+        item.timestamp,
+
+      received_at:
+        item.received_at,
+
+      values:
+        item.values ?? {},
     }));
 
   const fetchJson = async (url) => {
@@ -122,13 +153,21 @@ function App() {
     parameter,
     filterParams = {}
   ) => {
-    const query = new URLSearchParams({
-      device_id: String(deviceId),
-      parameter,
-      limit: String(chartPointLimit)
-    });
 
-    if (filterParams.tipo === "today") {
+    const query =
+      new URLSearchParams({
+        device_id:
+          String(deviceId),
+
+        limit:
+          String(chartPointLimit),
+      });
+
+
+    if (
+      filterParams.tipo === "today"
+    ) {
+
       const start =
         new Date();
 
@@ -138,6 +177,7 @@ function App() {
         0,
         0
       );
+
 
       const end =
         new Date();
@@ -149,30 +189,26 @@ function App() {
         999
       );
 
+
       query.set(
-        "start_timestamp",
-        String(
-          Math.floor(
-            start.getTime() / 1000
-          )
-        )
+        "start",
+        start.toISOString()
       );
 
       query.set(
-        "end_timestamp",
-        String(
-          Math.floor(
-            end.getTime() / 1000
-          )
-        )
+        "end",
+        end.toISOString()
       );
+
     }
+
 
     if (
       filterParams.tipo === "custom"
       && filterParams.dataInicio
       && filterParams.dataFim
     ) {
+
       const start =
         new Date(
           filterParams.dataInicio
@@ -183,55 +219,60 @@ function App() {
           filterParams.dataFim
         );
 
+
       if (
         !Number.isNaN(
           start.getTime()
         )
       ) {
+
         query.set(
-          "start_timestamp",
-          String(
-            Math.floor(
-              start.getTime() / 1000
-            )
-          )
+          "start",
+          start.toISOString()
         );
+
       }
+
 
       if (
         !Number.isNaN(
           end.getTime()
         )
       ) {
+
         query.set(
-          "end_timestamp",
-          String(
-            Math.floor(
-              end.getTime() / 1000
-            )
-          )
+          "end",
+          end.toISOString()
         );
+
       }
+
     }
 
-    const data =
+
+    const rows =
       await fetchJson(
         resolveUrl(
-          `/timeseries?${query.toString()}`
+          `/measurements/history?${query.toString()}`
         )
       );
 
-    const timestamps =
-      data.timestamps || [];
 
-    const values =
-      data.values || [];
+    if (!Array.isArray(rows)) {
+      return [];
+    }
 
-    return timestamps.map(
-      (timestamp, index) => ({
-        timestamp,
+
+    return rows.map(
+      (item) => ({
+
+        timestamp:
+          item.timestamp,
+
         [parameter]:
-          values[index] ?? null
+          item.values?.[parameter]
+          ?? null,
+
       })
     );
   };
@@ -240,28 +281,62 @@ function App() {
     deviceId,
     limit
   ) => {
-    const url = resolveUrl(
-      `/device-measurements/${deviceId}?limit=${limit}`
-    );
 
-    const rows = await fetchJson(url);
+    const query =
+      new URLSearchParams({
+        device_id:
+          String(deviceId),
+
+        limit:
+          String(limit),
+      });
+
+
+    const rows =
+      await fetchJson(
+        resolveUrl(
+          `/measurements/history?${query.toString()}`
+        )
+      );
+
 
     if (!Array.isArray(rows)) {
       return [];
     }
 
-    const selectedDeviceData =
-      devices.find((device) => device.id === deviceId);
 
-    return rows.map((item) => ({
-      measurementId: item.measurement_id,
-      deviceId: item.device_id,
-      deviceName:
-        selectedDeviceData?.name ||
-        `Dispositivo ${item.device_id}`,
-      timestamp: item.timestamp,
-      values: item.values || {}
-    }));
+    const selectedDeviceData =
+      devices.find(
+        (device) =>
+          device.id === deviceId
+      );
+
+
+    return rows.map(
+      (item) => ({
+
+        measurementId:
+          item.measurement_id,
+
+        deviceId:
+          item.device_id,
+
+        deviceName:
+          item.device_name
+          || selectedDeviceData?.name
+          || `Dispositivo ${item.device_id}`,
+
+        timestamp:
+          item.timestamp,
+
+        receivedAt:
+          item.received_at,
+
+        values:
+          item.values || {},
+
+      })
+    );
   };
 
   const overviewRequestRunning = useRef(false);
@@ -335,8 +410,15 @@ function App() {
 
       const [devicesRaw, measurementsRaw] =
         await Promise.all([
-          fetchJson(resolveUrl('/devices')),
-          fetchJson(resolveUrl('/measurements'))
+          fetchJson(
+            resolveUrl('/devices')
+          ),
+
+          fetchJson(
+            resolveUrl(
+              '/measurements/latest'
+            )
+          ),
         ]);
 
       const parsedDevices =
@@ -940,22 +1022,62 @@ function App() {
 
     if (abaAtiva === "Visão Geral") {
       const selectedHistoricalData = overviewData;
-      const latestReading = selectedHistoricalData[0] ?? null;
+      const latestReading =
+      selectedHistoricalData.length > 0
+        ? selectedHistoricalData[
+            selectedHistoricalData.length - 1
+          ]
+        : null;
       const latestValues = latestReading?.values || {};
 
       const temperature = getMetricValue(latestValues, ['temperature', 'Temperatura']);
       const humidity = getMetricValue(latestValues, ['humidity', 'Umidade']);
       const pressure = getMetricValue(latestValues, ['pressure', 'Pressão']);
       const light = getMetricValue(latestValues, ['light', 'Luminosidade']);
-      const pm25 = getMetricValue(latestValues, ['pm 2.5', 'pm_2_5']);
-      const pm10 = getMetricValue(latestValues, ['pm 10.0', 'pm_10_0', 'pm 10']);
-      const pm1 = getMetricValue(latestValues, ['pm 1.0', 'pm_1_0']);
-      const pm4 = getMetricValue(latestValues, ['pm 4.0', 'pm_4_0']);
-      const nc05 = getMetricValue(latestValues, ['nc 0.5', 'nc_0_5']);
-      const nc10 = getMetricValue(latestValues, ['nc 1.0', 'nc_1_0']);
-      const nc25 = getMetricValue(latestValues, ['nc 2.5', 'nc_2_5']);
-      const nc40 = getMetricValue(latestValues, ['nc 4.0', 'nc_4_0']);
-      const nc100 = getMetricValue(latestValues, ['nc 10.0', 'nc_10_0']);
+      const pm1 = getMetricValue(
+        latestValues,
+        ["pm1", "pm_1_0", "pm 1.0"]
+      );
+
+      const pm25 = getMetricValue(
+        latestValues,
+        ["pm25", "pm_2_5", "pm 2.5"]
+      );
+
+      const pm4 = getMetricValue(
+        latestValues,
+        ["pm4", "pm_4_0", "pm 4.0"]
+      );
+
+      const pm10 = getMetricValue(
+        latestValues,
+        ["pm10", "pm_10_0", "pm 10.0", "pm 10"]
+      );
+
+      const nc05 = getMetricValue(
+        latestValues,
+        ["nc05", "nc_0_5", "nc 0.5"]
+      );
+
+      const nc10 = getMetricValue(
+        latestValues,
+        ["nc10", "nc_1_0", "nc 1.0"]
+      );
+
+      const nc25 = getMetricValue(
+        latestValues,
+        ["nc25", "nc_2_5", "nc 2.5"]
+      );
+
+      const nc40 = getMetricValue(
+        latestValues,
+        ["nc40", "nc_4_0", "nc 4.0"]
+      );
+
+      const nc100 = getMetricValue(
+        latestValues,
+        ["nc100", "nc_10_0", "nc 10.0"]
+      );
 
       const overallData = [
           ...selectedHistoricalData
@@ -974,10 +1096,6 @@ function App() {
               === today.toDateString()
             );
           })
-          .sort((a, b) =>
-            Number(a.timestamp)
-            - Number(b.timestamp)
-          )
           .map((item) => ({
             timestamp:
               item.timestamp,
@@ -1288,7 +1406,10 @@ function App() {
                   <div className="card-labels">
                     <span className="card-title">{formatModuleName(device.name || `Dispositivo ${device.id}`)}</span>
                     <span className="card-subtitle">
-                      Lat {device.latitude?.toFixed(4) ?? 0}, Lon {device.longitude?.toFixed(4) ?? 0}
+                      {device.latitude != null &&
+                      device.longitude != null
+                        ? `Lat ${device.latitude.toFixed(4)}, Lon ${device.longitude.toFixed(4)}`
+                        : "Localização indisponível"}
                     </span>
                   </div>
                 </div>
